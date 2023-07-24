@@ -2,7 +2,6 @@ import sys
 import random
 import pandas as pd
 from PyQt5.QtWidgets import (
-    QFrame,
     QApplication,
     QWidget,
     QLabel,
@@ -16,18 +15,20 @@ from PyQt5.QtCore import Qt, QTimer
 import pygame
 from PyQt5.QtMultimedia import QSound
 from datetime import datetime
+from enum import Enum
 
 from typing import Literal
 
 
 class MathGame(QWidget):
-    def __init__(self, type_: Literal["+", "-", "*"] = "+"):
+    def __init__(self, operator: Literal["+", "-", "*"] = "+", level: int = 1):
         super().__init__()
 
         pairs = {"+": "더하기", "-": "빼기", "*": "곱하기"}
-        self.setWindowTitle(f"{pairs.get(type_)} 게임")
+        self.setWindowTitle(f"{pairs.get(operator)} 게임")
+        self.level = level
 
-        self.type_ = type_
+        self.problem_generator = MathProblemFactory.get(operator, level=level)
         self.correct_answers = 0
         self.wrong_answers = 0
         self.questions = []
@@ -54,10 +55,10 @@ class MathGame(QWidget):
         self.num1_label.setStyleSheet("font-size: 72px")
         self.question_layout.addWidget(self.num1_label)
 
-        self.num2_and_operator_label = QLabel()
-        self.num2_and_operator_label.setAlignment(Qt.AlignRight)
-        self.num2_and_operator_label.setStyleSheet("font-size: 72px")
-        self.question_layout.addWidget(self.num2_and_operator_label)
+        self.num2_label = QLabel()
+        self.num2_label.setAlignment(Qt.AlignRight)
+        self.num2_label.setStyleSheet("font-size: 72px")
+        self.question_layout.addWidget(self.num2_label)
 
         layout.addLayout(self.question_layout)
 
@@ -84,18 +85,15 @@ class MathGame(QWidget):
         self.timer.timeout.connect(self.update_timer)
         self.timer.start(1500)
 
+    @property
+    def operator(self):
+        return self.problem_generator.OPERATOR
+
     def new_question(self):
-        self.num1 = random.randint(1, 20)
-        self.num2 = random.randint(1, 20)
+        values = self.problem_generator.get_terms()
 
-        if self.type_ == "-":
-            self.num1, self.num2 = max(self.num1, self.num2), min(self.num1, self.num2)
-
-        # self.question_label.setText(f'{self.num1} {self.type_} {self.num2} =')
-        self.num1_label.setText(f"{str(self.num1)}")
-        self.num2_and_operator_label.setText(f"{self.type_} {str(self.num2)}")  # 연산자를 두 번째 숫자 앞에 추가, 우측 정렬을 위해 공백 추가
-        self.reset_timer()
-
+        self.num1_label.setText(f"{str(values[0])}")
+        self.num2_label.setText(f"{self.operator} {str(values[1])}")
         self.reset_timer()
 
         self.question_start_time = self.time_remaining
@@ -107,27 +105,19 @@ class MathGame(QWidget):
             QMessageBox.warning(self, "경고", "숫자를 입력하세요.")
             return
 
-        self.questions.append(f"{self.num1} {self.type_} {self.num2}")
+        self.questions.append(self.operator.join([str(value) for value in self.problem_generator.terms]))
         self.submitted_answers.append(user_answer)
         self.question_times.append(self.question_start_time - self.time_remaining)
 
-        match self.type_:
-            case "+":
-                correct = self.num1 + self.num2
-            case "-":
-                correct = self.num1 - self.num2
-            case "*":
-                correct = self.num1 * self.num2
-
-        if user_answer == correct:
-            QSound.play("good.wav")
+        if user_answer == self.problem_generator.get_answer():
+            QSound.play("assets/good.wav")
 
             self.correct_answers += 1
             self.answer_input.clear()
             self.new_question()
 
         else:
-            QSound.play("bad.wav")
+            QSound.play("assets/bad.wav")
             self.wrong_answers += 1
             self.answer_input.clear()
 
@@ -147,7 +137,7 @@ class MathGame(QWidget):
             self.update_score()
 
     def reset_timer(self):
-        if self.num1 + self.num2 > 20:
+        if self.problem_generator.get_answer() > 20:
             self.time_remaining = 30
         else:
             self.time_remaining = 20
@@ -169,9 +159,44 @@ class MathGame(QWidget):
         print(f"{file_name} 에 저장되었습니다.")
 
 
+class MathProblemFactory:
+    @staticmethod
+    def get(operator: Literal["+", "-", "*"], level: int):
+        if operator == "+":
+            return PlusProblemGenerator(level=level)
+        else:
+            raise NotImplementedError(operator)
+
+
+class PlusProblemGenerator:
+    OPERATOR = "+"
+
+    def __init__(self, level: int, term_num: int = 2):
+        self.level = level
+        self.term_num = term_num
+        self._terms = []
+
+    def get_terms(self) -> list[int]:
+        if self.level == 1:
+            self._terms = [random.randint(1, 9) for _ in range(self.term_num)]
+        elif self.level == 2:
+            self._terms = [random.randint(1, 19) for _ in range(self.term_num)]
+        elif self.level == 3:
+            self._terms = [random.randint(10, 50) for _ in range(self.term_num)]
+
+        return self.terms
+
+    def get_answer(self) -> int:
+        return sum(self.terms)
+
+    @property
+    def terms(self):
+        return self._terms
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    game = MathGame(type_="+")
+    game = MathGame(operator="+")
     game.show()
 
     sys.exit(app.exec_())
